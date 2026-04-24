@@ -1,0 +1,164 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0"/>
+  <title>BFHL Tree Explorer</title>
+  <style>
+    * { box-sizing: border-box; margin: 0; padding: 0; }
+    body { font-family: 'Segoe UI', sans-serif; background: #0f172a; color: #e2e8f0; min-height: 100vh; padding: 2rem; }
+    h1 { text-align: center; font-size: 2rem; margin-bottom: 0.5rem; color: #7c3aed; }
+    .subtitle { text-align: center; color: #94a3b8; margin-bottom: 2rem; }
+    .card { background: #1e293b; border-radius: 12px; padding: 1.5rem; margin-bottom: 1.5rem; }
+    textarea { width: 100%; background: #0f172a; border: 1px solid #334155; border-radius: 8px; color: #e2e8f0; padding: 1rem; font-size: 0.95rem; resize: vertical; min-height: 120px; }
+    button { display: block; width: 100%; margin-top: 1rem; padding: 0.85rem; background: #7c3aed; color: white; border: none; border-radius: 8px; font-size: 1rem; cursor: pointer; font-weight: 600; transition: background 0.2s; }
+    button:hover { background: #6d28d9; }
+    button:disabled { background: #475569; cursor: not-allowed; }
+    .error { background: #450a0a; border: 1px solid #991b1b; color: #fca5a5; padding: 1rem; border-radius: 8px; margin-top: 1rem; }
+    .section-title { font-size: 1.1rem; font-weight: 700; color: #7c3aed; margin-bottom: 1rem; }
+    .badge { display: inline-block; padding: 0.25rem 0.75rem; border-radius: 999px; font-size: 0.8rem; font-weight: 600; margin-right: 0.5rem; }
+    .badge-green { background: #052e16; color: #4ade80; }
+    .badge-red { background: #450a0a; color: #f87171; }
+    .badge-blue { background: #0c1a4e; color: #93c5fd; }
+    .summary-grid { display: grid; grid-template-columns: repeat(3, 1fr); gap: 1rem; }
+    .summary-card { background: #0f172a; border-radius: 8px; padding: 1rem; text-align: center; }
+    .summary-card .val { font-size: 2rem; font-weight: 800; color: #7c3aed; }
+    .summary-card .lbl { font-size: 0.8rem; color: #94a3b8; margin-top: 0.25rem; }
+    .tree-block { background: #0f172a; border-radius: 8px; padding: 1rem; margin-bottom: 1rem; border-left: 3px solid #7c3aed; }
+    .tree-block.cycle { border-left-color: #ef4444; }
+    .tree-json { font-family: monospace; font-size: 0.85rem; color: #a5f3fc; white-space: pre; overflow-x: auto; margin-top: 0.5rem; }
+    .tag-list { display: flex; flex-wrap: wrap; gap: 0.5rem; }
+    .tag { background: #1e3a5f; color: #93c5fd; padding: 0.25rem 0.6rem; border-radius: 6px; font-family: monospace; font-size: 0.85rem; }
+    .tag.invalid { background: #3b0a0a; color: #f87171; }
+    .tag.dup { background: #2d1a00; color: #fbbf24; }
+    .loading { text-align: center; color: #94a3b8; padding: 2rem; }
+    .meta { color: #94a3b8; font-size: 0.85rem; margin-bottom: 1rem; }
+  </style>
+</head>
+<body>
+
+<h1>🌳 BFHL Tree Explorer</h1>
+<p class="subtitle">SRM Full Stack Challenge — Node Hierarchy Analyzer</p>
+
+<div class="card">
+  <div class="section-title">Enter Node Edges</div>
+  <p style="color:#94a3b8;font-size:0.85rem;margin-bottom:0.75rem;">
+    Enter edges like <code style="color:#a5f3fc">A->B</code>, one per line or comma-separated.
+  </p>
+  <textarea id="inputData" placeholder="A->B&#10;A->C&#10;B->D&#10;X->Y&#10;Y->Z&#10;Z->X&#10;hello&#10;1->2"></textarea>
+  <button id="submitBtn" onclick="submitData()">🔍 Analyze Hierarchy</button>
+  <div id="error" style="display:none" class="error"></div>
+</div>
+
+<div id="results" style="display:none">
+  <div class="card" id="summaryCard">
+    <div class="section-title">📊 Summary</div>
+    <div id="metaInfo" class="meta"></div>
+    <div class="summary-grid" id="summaryGrid"></div>
+  </div>
+
+  <div class="card" id="hierarchyCard">
+    <div class="section-title">🌲 Hierarchies</div>
+    <div id="hierarchyList"></div>
+  </div>
+
+  <div class="card" id="tagsCard">
+    <div class="section-title">⚠️ Invalid &amp; Duplicates</div>
+    <div id="tagsList"></div>
+  </div>
+</div>
+
+<script>
+  // ⬇️ REPLACE THIS WITH YOUR DEPLOYED BACKEND URL
+  const API_BASE = "https://YOUR-BACKEND-URL.onrender.com";
+
+  async function submitData() {
+    const raw = document.getElementById("inputData").value.trim();
+    const errorDiv = document.getElementById("error");
+    const btn = document.getElementById("submitBtn");
+
+    errorDiv.style.display = "none";
+    document.getElementById("results").style.display = "none";
+
+    if (!raw) { showError("Please enter some edges."); return; }
+
+    // Parse: split by newline or comma
+    const data = raw.split(/[\n,]/).map(s => s.trim()).filter(Boolean);
+
+    btn.disabled = true;
+    btn.textContent = "⏳ Analyzing...";
+
+    try {
+      const res = await fetch(`${API_BASE}/bfhl`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ data })
+      });
+
+      if (!res.ok) throw new Error(`HTTP ${res.status}`);
+      const json = await res.json();
+      renderResults(json);
+    } catch (e) {
+      showError("API call failed: " + e.message + ". Make sure the backend is running.");
+    } finally {
+      btn.disabled = false;
+      btn.textContent = "🔍 Analyze Hierarchy";
+    }
+  }
+
+  function showError(msg) {
+    const d = document.getElementById("error");
+    d.textContent = msg;
+    d.style.display = "block";
+  }
+
+  function renderResults(data) {
+    // Meta
+    document.getElementById("metaInfo").innerHTML =
+      `<strong>${data.user_id}</strong> &nbsp;|&nbsp; ${data.email_id} &nbsp;|&nbsp; ${data.college_roll_number}`;
+
+    // Summary grid
+    const s = data.summary;
+    document.getElementById("summaryGrid").innerHTML = `
+      <div class="summary-card"><div class="val">${s.total_trees}</div><div class="lbl">Valid Trees</div></div>
+      <div class="summary-card"><div class="val">${s.total_cycles}</div><div class="lbl">Cyclic Groups</div></div>
+      <div class="summary-card"><div class="val">${s.largest_tree_root || "—"}</div><div class="lbl">Deepest Tree Root</div></div>
+    `;
+
+    // Hierarchies
+    const hl = document.getElementById("hierarchyList");
+    hl.innerHTML = "";
+    data.hierarchies.forEach(h => {
+      const div = document.createElement("div");
+      div.className = "tree-block" + (h.has_cycle ? " cycle" : "");
+      div.innerHTML = `
+        <div style="display:flex;align-items:center;gap:0.5rem;margin-bottom:0.5rem">
+          <strong style="font-size:1.1rem">Root: ${h.root}</strong>
+          ${h.has_cycle ? '<span class="badge badge-red">🔄 Cycle</span>' : `<span class="badge badge-green">✅ Tree</span><span class="badge badge-blue">Depth: ${h.depth}</span>`}
+        </div>
+        <div class="tree-json">${JSON.stringify(h.tree, null, 2)}</div>
+      `;
+      hl.appendChild(div);
+    });
+
+    // Tags
+    const tl = document.getElementById("tagsList");
+    tl.innerHTML = "";
+
+    if (data.invalid_entries.length > 0) {
+      tl.innerHTML += `<p style="color:#94a3b8;margin-bottom:0.5rem;font-size:0.85rem">Invalid Entries:</p>
+        <div class="tag-list">${data.invalid_entries.map(e => `<span class="tag invalid">${e}</span>`).join("")}</div>`;
+    }
+    if (data.duplicate_edges.length > 0) {
+      tl.innerHTML += `<p style="color:#94a3b8;margin:0.75rem 0 0.5rem;font-size:0.85rem">Duplicate Edges:</p>
+        <div class="tag-list">${data.duplicate_edges.map(e => `<span class="tag dup">${e}</span>`).join("")}</div>`;
+    }
+    if (!data.invalid_entries.length && !data.duplicate_edges.length) {
+      tl.innerHTML = `<span style="color:#4ade80">✅ No invalid entries or duplicates found.</span>`;
+    }
+
+    document.getElementById("results").style.display = "block";
+  }
+</script>
+</body>
+</html>
